@@ -1,8 +1,8 @@
 # mitoLauncher
-A basic retro game launcher inspired by the mighty MinUI.
+A basic retro game launcher inspired by the mighty MinUI
 
 # Features:
-  - conffig script
+  - config script
   - show game screenshots
   - history
   - favorites
