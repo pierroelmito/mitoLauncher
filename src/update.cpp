@@ -6,14 +6,14 @@
 #include <boost/algorithm/string/replace.hpp>
 
 #include "dbpp.hpp"
+#include "sql.hpp"
 
 namespace Update {
 
 void SetLastPlayed(Context& ctx, Content& c)
 {
-	const char* sql = "UPDATE content SET last_played = ? WHERE id = ?;";
 	const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-	Query(ctx.db, sql, [&](sqlite3_stmt* stmt) {
+	Query(ctx.db, Sql::UpdateLastPlayed, [&](sqlite3_stmt* stmt) {
 		sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(now));
 		sqlite3_bind_int(stmt, 2, c.id);
 	});
@@ -22,8 +22,7 @@ void SetLastPlayed(Context& ctx, Content& c)
 
 void SetFav(Context& ctx, Content& c, bool fav)
 {
-	const char* sql = "UPDATE content SET favorite = ? WHERE id = ?;";
-	Query(ctx.db, sql, [&](sqlite3_stmt* stmt) {
+	Query(ctx.db, Sql::UpdateFavorite, [&](sqlite3_stmt* stmt) {
 		sqlite3_bind_int(stmt, 1, fav ? 1 : 0);
 		sqlite3_bind_int(stmt, 2, c.id);
 	});
@@ -90,16 +89,14 @@ bool Do_Platforms(Context& ctx, const UpdateParams)
 		auto& row = view.values[view.vs.selected];
 		if (row.it == ItemType::Platform) {
 			const auto& [platform, count] = view.current(ctx.platforms);
-			const char* query = TextFormat("SELECT id, name, path, platform, image, favorite, last_played FROM content WHERE platform = '%s' ORDER BY name;", platform.c_str());
+			const char* query = TextFormat(Sql::SelectContent, platform.c_str());
 			fillContent(platform, query);
 		} else if (row.it == ItemType::View) {
 			const auto& [name, count] = view.current(ctx.customViews);
 			if (name == Str::Favorites) {
-				const char* query = TextFormat("SELECT id, name, path, platform, image, favorite, last_played FROM content WHERE favorite = 1 ORDER BY name;");
-				fillContent("Favorites", query);
+				fillContent("Favorites", Sql::SelectFavorites);
 			} else if (name == Str::History) {
-				const char* query = TextFormat("SELECT id, name, path, platform, image, favorite, last_played FROM content WHERE last_played is not null ORDER BY last_played;");
-				fillContent("History", query);
+				fillContent("History", Sql::SelectHistory);
 			} else if (name == Str::Themes) {
 				PushView(ctx, State::Themes, "Themes", ctx.themeList.size(), ItemType::Theme).vs = {};
 			}

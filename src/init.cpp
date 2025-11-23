@@ -7,29 +7,8 @@
 #include <boost/algorithm/string/replace.hpp>
 
 #include "dbpp.hpp"
+#include "sql.hpp"
 #include "tclpp.hpp"
-
-constexpr const char* SqlInitDB = R"(
-
-CREATE TABLE IF NOT EXISTS platforms (
-	id INTEGER PRIMARY KEY,
-	name TEXT NOT NULL,
-	label TEXT NOT NULL,
-	UNIQUE(name)
-);
-
-CREATE TABLE IF NOT EXISTS content (
-	id INTEGER PRIMARY KEY,
-	name TEXT NOT NULL,
-	path TEXT NOT NULL,
-	platform TEXT NOT NULL,
-	image TEXT,
-	favorite INTEGER DEFAULT 0,
-	last_played DATETIME DEFAULT null,
-	UNIQUE(path, platform)
-);
-
-)";
 
 void AddPlatform(Context& ctx, sqlite3_stmt* stmt, const std::string& name, const std::string& label)
 {
@@ -221,7 +200,7 @@ void InitDB(Context& ctx)
 	}
 
 	char* errMsg = nullptr;
-	if (sqlite3_exec(db, SqlInitDB, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+	if (sqlite3_exec(db, Sql::InitDB, nullptr, nullptr, &errMsg) != SQLITE_OK) {
 		TraceLog(LOG_ERROR, "SQL error: %s", errMsg);
 		sqlite3_free(errMsg);
 	}
@@ -272,8 +251,7 @@ void ScanContentRec(Context& ctx, sqlite3_stmt* stmt, const std::string& platfor
 void ScanContent(Context& ctx, const std::string& platform, const std::filesystem::path& path, const DirectoryInfo& di)
 {
 	sqlite3_stmt* stmt;
-	const char* sql = "INSERT OR IGNORE INTO content (name, path, platform, image) VALUES (?, ?, ?, ?);";
-	if (sqlite3_prepare_v2(ctx.db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+	if (sqlite3_prepare_v2(ctx.db, Sql::InsertContent, -1, &stmt, nullptr) != SQLITE_OK) {
 		TraceLog(LOG_ERROR, "Failed to prepare statement: %s", sqlite3_errmsg(ctx.db));
 		return;
 	}
@@ -296,14 +274,13 @@ void RefreshContent(Context& ctx)
 void RefreshMain(Context& ctx)
 {
 	{
-		constexpr const char* query = "SELECT platform, count(platform) FROM content, platforms WHERE content.platform = platforms.name GROUP BY platform ORDER BY label;";
 		using R = DataReader<std::string, int>;
-		ctx.platforms = R::FetchTuples(ctx.db, query);
+		ctx.platforms = R::FetchTuples(ctx.db, Sql::SelectPlatforms);
 	}
 
 	{
-		const auto& [countFav] = DataReader<int>::FetchOne(ctx.db, "SELECT count(*) from content WHERE favorite = 1");
-		const auto& [countHist] = DataReader<int>::FetchOne(ctx.db, "SELECT count(*) from content WHERE last_played is not null ORDER BY last_played");
+		const auto& [countFav] = DataReader<int>::FetchOne(ctx.db, Sql::CountFav);
+		const auto& [countHist] = DataReader<int>::FetchOne(ctx.db, Sql::CountHist);
 		ctx.customViews = {
 			{ Str::History, countHist },
 			{ Str::Favorites, countFav },
