@@ -290,6 +290,7 @@ void RefreshContent(Context& ctx)
 			ScanContent(ctx, id, di.dir, di);
 		}
 	}
+	RefreshMain(ctx);
 }
 
 void RefreshMain(Context& ctx)
@@ -302,15 +303,17 @@ void RefreshMain(Context& ctx)
 
 	{
 		const auto& [countFav] = DataReader<int>::FetchOne(ctx.db, "SELECT count(*) from content WHERE favorite = 1");
+		const auto& [countHist] = DataReader<int>::FetchOne(ctx.db, "SELECT count(*) from content WHERE last_played is not null ORDER BY last_played");
 		ctx.customViews = {
-			{ Str::History, 0 },
+			{ Str::History, countHist },
 			{ Str::Favorites, countFav },
 			{ Str::Themes, ctx.themes.size() },
 		};
 	}
 
 	{
-		auto& view = ctx.views.emplace_back();
+		auto& view = ctx.views.front();
+		view.values.clear();
 		view.values.reserve(ctx.platforms.size() + ctx.customViews.size());
 		for (size_t i = 0; i < ctx.platforms.size(); ++i) {
 			view.values.push_back({ ItemType::Platform, i });
@@ -466,8 +469,8 @@ bool Init(Context& ctx, std::span<char*>)
 		}
 	}
 
+	ctx.views.emplace_back(); // create main view
 	RefreshContent(ctx);
-	RefreshMain(ctx);
 
 	return true;
 }

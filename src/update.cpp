@@ -97,6 +97,9 @@ bool Do_Platforms(Context& ctx, const UpdateParams)
 			if (name == Str::Favorites) {
 				const char* query = TextFormat("SELECT id, name, path, platform, image, favorite, last_played FROM content WHERE favorite = 1 ORDER BY name;");
 				fillContent("Favorites", query);
+			} else if (name == Str::History) {
+				const char* query = TextFormat("SELECT id, name, path, platform, image, favorite, last_played FROM content WHERE last_played is not null ORDER BY last_played;");
+				fillContent("History", query);
 			} else if (name == Str::Themes) {
 				PushView(ctx, State::Themes, "Themes", ctx.themeList.size(), ItemType::Theme).vs = {};
 			}
@@ -121,12 +124,13 @@ bool Do_Content(Context& ctx, const UpdateParams)
 		view.values[view.vs.selected].dirty();
 		SetLastPlayed(ctx, item);
 		std::system(cmd.c_str());
-		return true;
+		RefreshMain(ctx);
 	} else if (IsKeyPressed(ctx.mapping.toggle)) {
 		auto& view = ctx.views.back();
 		auto& item = view.current(ctx.content);
 		view.values[view.vs.selected].dirty();
 		SetFav(ctx, item, !item.favorite);
+		RefreshMain(ctx);
 	}
 	return true;
 }
@@ -137,11 +141,6 @@ bool Do_Themes(Context& ctx, const UpdateParams)
 		auto& view = ctx.views.back();
 		const auto& [th] = view.current(ctx.themeList);
 		ctx.theme = ctx.themes[th];
-		for (auto& v : ctx.views) {
-			for (auto& val : v.values) {
-				val.textWidth = 0;
-			}
-		}
 		return true;
 	}
 	return true;
@@ -170,6 +169,11 @@ bool Do(Context& ctx, const UpdateParams p)
 			ctx.fnt = LoadFontEx(ctx.theme.fi.fontPath.c_str(), ctx.theme.fi.textSize, nullptr, 0);
 		}
 		ctx.currentFont = ctx.theme.fi;
+		for (auto& v : ctx.views) {
+			for (auto& val : v.values) {
+				val.textWidth = 0;
+			}
+		}
 	}
 
 	{

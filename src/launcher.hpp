@@ -162,6 +162,8 @@ struct Context {
 
 bool Init(Context& ctx, std::span<char*> args);
 void Release(Context& ctx);
+void RefreshContent(Context& ctx);
+void RefreshMain(Context& ctx);
 
 namespace Update {
 struct UpdateParams {

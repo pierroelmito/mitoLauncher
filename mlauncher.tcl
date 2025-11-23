@@ -1,5 +1,5 @@
 
-set romDir {/home/pierro/Games/Emul/roms}
+set romDir "$::env(HOME)/Games/Emul/roms"
 set coreDir {/usr/lib/libretro}
 
 proc ra_core { name } {
