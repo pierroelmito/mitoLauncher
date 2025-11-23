@@ -225,7 +225,7 @@ void ScanContentRec(Context& ctx, sqlite3_stmt* stmt, const std::string& platfor
 			if (!depthOk)
 				continue;
 			const std::string vpath = p.path().string();
-			const std::string e = p.path().extension();
+			const std::string e = p.path().extension().string();
 			if (!di.ext.empty() && !di.ext.contains(e))
 				continue;
 			const std::string vname = p.path().stem().string();
@@ -324,6 +324,7 @@ bool Init(Context& ctx, std::span<char*>)
 		}
 	}
 
+#if 0
 	{
 		const std::vector<KeyboardKey> keys = {
 			KEY_APOSTROPHE,
@@ -445,6 +446,7 @@ bool Init(Context& ctx, std::span<char*>)
 			}
 		}
 	}
+#endif
 
 	ctx.views.emplace_back(); // create main view
 	RefreshContent(ctx);
