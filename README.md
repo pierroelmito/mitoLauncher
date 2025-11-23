@@ -1,7 +1,16 @@
 # mitoLauncher
-A basic retro game launcher inspired by the mighty MinUI. It is lighweight, configurable using a script, and can show game screenshots.
+A basic retro game launcher inspired by the mighty MinUI.
 
-Main menu:
+# Features:
+  - conffig script
+  - show game screenshots
+  - history
+  - favorites
+  - themes
+  - day/night mode
+
+# Screens
+main menu
 ![Alt text](screens/2025-11-23-124703_1280x720_scrot.png?raw=true "Main menu")
 
 Platform content with screenshots:
