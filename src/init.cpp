@@ -178,11 +178,37 @@ void InitTcl(Context& ctx)
 		return TCL_OK;
 	};
 
+	constexpr auto bind = [](ClientData cd, Tcl_Interp* tcl, int argc, Tcl_Obj* const* argv) -> int {
+		std::optional<std::string> action;
+		std::optional<std::string> key;
+		for (int i = 1; i < argc; ++i) {
+			const auto arg = TclTo<std::string>(tcl, argv[i]);
+			if (i < argc - 1) {
+				if (arg == "-action") {
+					OPT_VALUE(action);
+				} else if (arg == "-key") {
+					OPT_VALUE(key);
+				}
+			}
+		}
+		if (!action)
+			return TCL_ERROR;
+		Context& ctx = *((Context*)cd);
+		const auto a = Action::fromName(*action);
+		if (a && key) {
+			if (auto it = ctx.keyNameToId.find(*key); it != ctx.keyNameToId.end()) {
+				ctx.mapping.keys[*a] = it->second;
+			}
+		}
+		return TCL_OK;
+	};
+
 #undef OPT_VALUE
 
 	Tcl_CreateObjCommand(ctx.interp, "platform", platform, &ctx, nullptr);
 	Tcl_CreateObjCommand(ctx.interp, "directory", directory, &ctx, nullptr);
 	Tcl_CreateObjCommand(ctx.interp, "theme", theme, &ctx, nullptr);
+	Tcl_CreateObjCommand(ctx.interp, "bind", bind, &ctx, nullptr);
 
 	auto r = Tcl_EvalFile(ctx.interp, APP_NAME ".tcl");
 	if (r != TCL_OK) {
@@ -301,18 +327,147 @@ void RefreshMain(Context& ctx)
 	}
 }
 
+void InitKeys(Context& ctx)
+{
+	ctx.keyNameToId = {
+		{ "ESCAPE", KEY_ESCAPE },
+		{ "ENTER", KEY_ENTER },
+		{ "TAB", KEY_TAB },
+		{ "BACKSPACE", KEY_BACKSPACE },
+		{ "INSERT", KEY_INSERT },
+		{ "DELETE", KEY_DELETE },
+		{ "RIGHT", KEY_RIGHT },
+		{ "LEFT", KEY_LEFT },
+		{ "DOWN", KEY_DOWN },
+		{ "UP", KEY_UP },
+		{ "PAGE_UP", KEY_PAGE_UP },
+		{ "PAGE_DOWN", KEY_PAGE_DOWN },
+		{ "HOME", KEY_HOME },
+		{ "END", KEY_END },
+		{ "CAPS_LOCK", KEY_CAPS_LOCK },
+		{ "SCROLL_LOCK", KEY_SCROLL_LOCK },
+		{ "NUM_LOCK", KEY_NUM_LOCK },
+		{ "PRINT_SCREEN", KEY_PRINT_SCREEN },
+		{ "PAUSE", KEY_PAUSE },
+		{ "F1", KEY_F1 },
+		{ "F2", KEY_F2 },
+		{ "F3", KEY_F3 },
+		{ "F4", KEY_F4 },
+		{ "F5", KEY_F5 },
+		{ "F6", KEY_F6 },
+		{ "F7", KEY_F7 },
+		{ "F8", KEY_F8 },
+		{ "F9", KEY_F9 },
+		{ "F10", KEY_F10 },
+		{ "F11", KEY_F11 },
+		{ "F12", KEY_F12 },
+		{ "LEFT_SHIFT", KEY_LEFT_SHIFT },
+		{ "LEFT_CONTROL", KEY_LEFT_CONTROL },
+		{ "LEFT_ALT", KEY_LEFT_ALT },
+		{ "LEFT_SUPER", KEY_LEFT_SUPER },
+		{ "RIGHT_SHIFT", KEY_RIGHT_SHIFT },
+		{ "RIGHT_CONTROL", KEY_RIGHT_CONTROL },
+		{ "RIGHT_ALT", KEY_RIGHT_ALT },
+		{ "RIGHT_SUPER", KEY_RIGHT_SUPER },
+		{ "KB_MENU", KEY_KB_MENU },
+		{ "KP_0", KEY_KP_0 },
+		{ "KP_1", KEY_KP_1 },
+		{ "KP_2", KEY_KP_2 },
+		{ "KP_3", KEY_KP_3 },
+		{ "KP_4", KEY_KP_4 },
+		{ "KP_5", KEY_KP_5 },
+		{ "KP_6", KEY_KP_6 },
+		{ "KP_7", KEY_KP_7 },
+		{ "KP_8", KEY_KP_8 },
+		{ "KP_9", KEY_KP_9 },
+		{ "KP_DECIMAL", KEY_KP_DECIMAL },
+		{ "KP_DIVIDE", KEY_KP_DIVIDE },
+		{ "KP_MULTIPLY", KEY_KP_MULTIPLY },
+		{ "KP_SUBTRACT", KEY_KP_SUBTRACT },
+		{ "KP_ADD", KEY_KP_ADD },
+		{ "KP_ENTER", KEY_KP_ENTER },
+		{ "KP_EQUAL", KEY_KP_EQUAL },
+		{ "BACK", KEY_BACK },
+		{ "MENU", KEY_MENU },
+		{ "VOLUME_UP", KEY_VOLUME_UP },
+		{ "VOLUME_DOWN", KEY_VOLUME_DOWN },
+	};
+	const std::vector<KeyboardKey> keysOk = {
+		KEY_APOSTROPHE,
+		KEY_COMMA,
+		KEY_MINUS,
+		KEY_PERIOD,
+		KEY_SLASH,
+		KEY_ZERO,
+		KEY_ONE,
+		KEY_TWO,
+		KEY_THREE,
+		KEY_FOUR,
+		KEY_FIVE,
+		KEY_SIX,
+		KEY_SEVEN,
+		KEY_EIGHT,
+		KEY_NINE,
+		KEY_SEMICOLON,
+		KEY_EQUAL,
+		KEY_A,
+		KEY_B,
+		KEY_C,
+		KEY_D,
+		KEY_E,
+		KEY_F,
+		KEY_G,
+		KEY_H,
+		KEY_I,
+		KEY_J,
+		KEY_K,
+		KEY_L,
+		KEY_M,
+		KEY_N,
+		KEY_O,
+		KEY_P,
+		KEY_Q,
+		KEY_R,
+		KEY_S,
+		KEY_T,
+		KEY_U,
+		KEY_V,
+		KEY_W,
+		KEY_X,
+		KEY_Y,
+		KEY_Z,
+		KEY_LEFT_BRACKET,
+		KEY_BACKSLASH,
+		KEY_RIGHT_BRACKET,
+		KEY_GRAVE,
+		KEY_SPACE,
+	};
+	for (auto key : keysOk) {
+		const char* name = GetKeyName(key);
+		if (name != nullptr && name[0] != '\0') {
+			ctx.keyNameToId[name] = key;
+		} else {
+			TraceLog(LOG_INFO, "Key %d -> ?", key);
+		}
+	}
+	for (const auto& [k, v] : ctx.keyNameToId) {
+		TraceLog(LOG_INFO, "Key %d -> %s", v, k.c_str());
+	}
+}
+
 bool Init(Context& ctx, std::span<char*>)
 {
 #ifndef DEBUG
 	SetTraceLogLevel(LOG_WARNING);
 #endif
 
+	SetWindowState(FLAG_VSYNC_HINT | FLAG_WINDOW_MAXIMIZED);
 	InitWindow(1280, 720, "main");
-	SetWindowState(FLAG_VSYNC_HINT);
 	SetExitKey(KEY_NULL);
 	SetTargetFPS(60);
 	DisableCursor();
 
+	InitKeys(ctx);
 	InitDB(ctx);
 	InitTcl(ctx);
 	AddPlatforms(ctx);
@@ -323,130 +478,6 @@ bool Init(Context& ctx, std::span<char*>)
 			ctx.themeList.push_back(id);
 		}
 	}
-
-#if 0
-	{
-		const std::vector<KeyboardKey> keys = {
-			KEY_APOSTROPHE,
-			KEY_COMMA,
-			KEY_MINUS,
-			KEY_PERIOD,
-			KEY_SLASH,
-			KEY_ZERO,
-			KEY_ONE,
-			KEY_TWO,
-			KEY_THREE,
-			KEY_FOUR,
-			KEY_FIVE,
-			KEY_SIX,
-			KEY_SEVEN,
-			KEY_EIGHT,
-			KEY_NINE,
-			KEY_SEMICOLON,
-			KEY_EQUAL,
-			KEY_A,
-			KEY_B,
-			KEY_C,
-			KEY_D,
-			KEY_E,
-			KEY_F,
-			KEY_G,
-			KEY_H,
-			KEY_I,
-			KEY_J,
-			KEY_K,
-			KEY_L,
-			KEY_M,
-			KEY_N,
-			KEY_O,
-			KEY_P,
-			KEY_Q,
-			KEY_R,
-			KEY_S,
-			KEY_T,
-			KEY_U,
-			KEY_V,
-			KEY_W,
-			KEY_X,
-			KEY_Y,
-			KEY_Z,
-			KEY_LEFT_BRACKET,
-			KEY_BACKSLASH,
-			KEY_RIGHT_BRACKET,
-			KEY_GRAVE,
-			KEY_SPACE,
-			KEY_ESCAPE,
-			KEY_ENTER,
-			KEY_TAB,
-			KEY_BACKSPACE,
-			KEY_INSERT,
-			KEY_DELETE,
-			KEY_RIGHT,
-			KEY_LEFT,
-			KEY_DOWN,
-			KEY_UP,
-			KEY_PAGE_UP,
-			KEY_PAGE_DOWN,
-			KEY_HOME,
-			KEY_END,
-			KEY_CAPS_LOCK,
-			KEY_SCROLL_LOCK,
-			KEY_NUM_LOCK,
-			KEY_PRINT_SCREEN,
-			KEY_PAUSE,
-			KEY_F1,
-			KEY_F2,
-			KEY_F3,
-			KEY_F4,
-			KEY_F5,
-			KEY_F6,
-			KEY_F7,
-			KEY_F8,
-			KEY_F9,
-			KEY_F10,
-			KEY_F11,
-			KEY_F12,
-			KEY_LEFT_SHIFT,
-			KEY_LEFT_CONTROL,
-			KEY_LEFT_ALT,
-			KEY_LEFT_SUPER,
-			KEY_RIGHT_SHIFT,
-			KEY_RIGHT_CONTROL,
-			KEY_RIGHT_ALT,
-			KEY_RIGHT_SUPER,
-			KEY_KB_MENU,
-			KEY_KP_0,
-			KEY_KP_1,
-			KEY_KP_2,
-			KEY_KP_3,
-			KEY_KP_4,
-			KEY_KP_5,
-			KEY_KP_6,
-			KEY_KP_7,
-			KEY_KP_8,
-			KEY_KP_9,
-			KEY_KP_DECIMAL,
-			KEY_KP_DIVIDE,
-			KEY_KP_MULTIPLY,
-			KEY_KP_SUBTRACT,
-			KEY_KP_ADD,
-			KEY_KP_ENTER,
-			KEY_KP_EQUAL,
-			KEY_BACK,
-			KEY_MENU,
-			KEY_VOLUME_UP,
-			KEY_VOLUME_DOWN,
-		};
-		for (auto key : keys) {
-			const char* name = GetKeyName(key);
-			if (name != nullptr && name[0] != '\0') {
-				TraceLog(LOG_INFO, "Key %d -> '%s'", key, name);
-			} else {
-				TraceLog(LOG_INFO, "Key %d -> ?", key);
-			}
-		}
-	}
-#endif
 
 	ctx.views.emplace_back(); // create main view
 	RefreshContent(ctx);

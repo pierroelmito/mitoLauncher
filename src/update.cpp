@@ -10,6 +10,12 @@
 
 namespace Update {
 
+bool CheckAction(Context& ctx, Action::Type a)
+{
+	const auto& ai = ctx.mapping.keys[a];
+	return ai && IsKeyPressed(*ai);
+}
+
 void SetLastPlayed(Context& ctx, Content& c)
 {
 	const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
@@ -50,13 +56,13 @@ void MoveSelection(SelectVector& select, int direction, Mode mode)
 
 void KeyMove(Context& ctx, SelectVector& select)
 {
-	if (IsKeyPressed(ctx.mapping.down))
+	if (CheckAction(ctx, Action::Down))
 		MoveSelection(select, 1, Mode::Wrap);
-	if (IsKeyPressed(ctx.mapping.up))
+	if (CheckAction(ctx, Action::Up))
 		MoveSelection(select, -1, Mode::Wrap);
-	if (IsKeyPressed(ctx.mapping.pageDown))
+	if (CheckAction(ctx, Action::PageDown))
 		MoveSelection(select, 10, Mode::Clamp);
-	if (IsKeyPressed(ctx.mapping.pageUp))
+	if (CheckAction(ctx, Action::PageUp))
 		MoveSelection(select, -10, Mode::Clamp);
 }
 
@@ -84,7 +90,7 @@ bool Do_Platforms(Context& ctx, const UpdateParams)
 		if (!ctx.content.empty())
 			PushView(ctx, State::Content, pf, ctx.content.size(), ItemType::Content).vs = ctx.lastSelected[pf];
 	};
-	if (IsKeyPressed(ctx.mapping.activate)) {
+	if (CheckAction(ctx, Action::Activate)) {
 		auto& view = ctx.views.back();
 		auto& row = view.values[view.vs.selected];
 		if (row.it == ItemType::Platform) {
@@ -108,7 +114,7 @@ bool Do_Platforms(Context& ctx, const UpdateParams)
 
 bool Do_Content(Context& ctx, const UpdateParams)
 {
-	if (IsKeyPressed(ctx.mapping.activate)) {
+	if (CheckAction(ctx, Action::Activate)) {
 		auto& view = ctx.views.back();
 		auto& item = view.current(ctx.content);
 		const auto cmd = [&]() -> std::string {
@@ -122,7 +128,7 @@ bool Do_Content(Context& ctx, const UpdateParams)
 		SetLastPlayed(ctx, item);
 		std::system(cmd.c_str());
 		RefreshMain(ctx);
-	} else if (IsKeyPressed(ctx.mapping.toggle)) {
+	} else if (CheckAction(ctx, Action::Toggle)) {
 		auto& view = ctx.views.back();
 		auto& item = view.current(ctx.content);
 		view.values[view.vs.selected].dirty();
@@ -134,7 +140,7 @@ bool Do_Content(Context& ctx, const UpdateParams)
 
 bool Do_Themes(Context& ctx, const UpdateParams)
 {
-	if (IsKeyPressed(ctx.mapping.activate)) {
+	if (CheckAction(ctx, Action::Activate)) {
 		auto& view = ctx.views.back();
 		const auto& [th] = view.current(ctx.themeList);
 		ctx.theme = ctx.themes[th];
@@ -148,7 +154,7 @@ bool Do(Context& ctx, const UpdateParams p)
 	if (WindowShouldClose())
 		return false;
 
-	if (IsKeyPressed(ctx.mapping.back)) {
+	if (CheckAction(ctx, Action::Back)) {
 		auto& view = ctx.views.back();
 		ctx.lastSelected[view.title] = view.vs;
 		ctx.views.resize(ctx.views.size() - 1);

@@ -1,13 +1,13 @@
 /**********************************************************************************************
 *
-*   rcore_<platform> template - Functions to manage window, graphics device and inputs
+*   rcore_memory - Functions to manage window, graphics device and inputs
 *
-*   PLATFORM: <PLATFORM>
-*       - TODO: Define the target platform for the core
+*   PLATFORM: MEMORY (No OS)
+*       - Memory framebuffer output (no os)
 *
 *   LIMITATIONS:
-*       - Limitation 01
-*       - Limitation 02
+*       - Software renderer (rlsw)
+*       - No input system
 *
 *   POSSIBLE IMPROVEMENTS:
 *       - Improvement 01
@@ -21,13 +21,13 @@
 *           Custom flag for rcore on target platform -not used-
 *
 *   DEPENDENCIES:
-*       - <platform-specific SDK dependency>
+*       - rlsw: Software renderer
 *       - gestures: Gestures system for touch-ready devices (or simulated from mouse inputs)
 *
 *
 *   LICENSE: zlib/libpng
 *
-*   Copyright (c) 2013-2025 Ramon Santamaria (@raysan5) and contributors
+*   Copyright (c) 2025 Ramon Santamaria (@raysan5) and contributors
 *
 *   This software is provided "as-is", without any express or implied warranty. In no event
 *   will the authors be held liable for any damages arising from the use of this software.
@@ -46,19 +46,30 @@
 *
 **********************************************************************************************/
 
-// TODO: Include the platform specific libraries
+#if defined(_WIN32)
+    #include <conio.h>              // Required for: kbhit()
+#else
+    // Provide kbhit() function in non-Windows platforms
+    #include <termios.h>
+    #include <unistd.h>
+    #include <fcntl.h>
+#endif
 
 //----------------------------------------------------------------------------------
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
-typedef struct {
-    // TODO: Define the platform specific variables required
+// Platform-specific required data for timming (Win32)
+#if defined(_WIN32)
+typedef struct _LARGE_INTEGER { int64_t QuadPart; } LARGE_INTEGER;
+__declspec(dllimport) int __stdcall QueryPerformanceCounter(LARGE_INTEGER *lpPerformanceCount);
+__declspec(dllimport) int __stdcall QueryPerformanceFrequency(LARGE_INTEGER *lpFrequency);
+#endif
 
-    // Display data
-    EGLDisplay device;                  // Native display device (physical screen connection)
-    EGLSurface surface;                 // Surface to draw on, framebuffers (connected to context)
-    EGLContext context;                 // Graphic context, mode in which drawing can be done
-    EGLConfig config;                   // Graphic config
+typedef struct {
+    unsigned int *pixels;   // Pointer to pixel data buffer (RGBA8888 format)
+#if defined(_WIN32)
+    LARGE_INTEGER timerFrequency;
+#endif
 } PlatformData;
 
 //----------------------------------------------------------------------------------
@@ -71,13 +82,21 @@ static PlatformData platform = { 0 };   // Platform specific data
 //----------------------------------------------------------------------------------
 // Module Internal Functions Declaration
 //----------------------------------------------------------------------------------
-int InitPlatform(void);          // Initialize platform (graphics, inputs and more)
-bool InitGraphicsDevice(void);   // Initialize graphics device
+int InitPlatform(void);                 // Initialize platform (graphics, inputs and more)
+bool InitGraphicsDevice(void);          // Initialize graphics device
 
 //----------------------------------------------------------------------------------
 // Module Functions Declaration
 //----------------------------------------------------------------------------------
 // NOTE: Functions declaration is provided by raylib.h
+
+//----------------------------------------------------------------------------------
+// Module Internal Functions Declaration
+//----------------------------------------------------------------------------------
+#if !defined(_WIN32)
+static int kbhit(void);                         // Check if a key has been pressed
+static char getch(void) { return getchar(); }   // Get pressed character
+#endif
 
 //----------------------------------------------------------------------------------
 // Module Functions Definition: Window and Graphics Device
@@ -335,7 +354,8 @@ void DisableCursor(void)
 // Swap back buffer with front buffer (screen drawing)
 void SwapScreenBuffer(void)
 {
-    eglSwapBuffers(platform.device, platform.surface);
+    // Update framebuffer
+    rlCopyFramebuffer(0, 0, CORE.Window.render.width, CORE.Window.render.height, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, platform.pixels);
 }
 
 //----------------------------------------------------------------------------------
@@ -346,12 +366,17 @@ void SwapScreenBuffer(void)
 double GetTime(void)
 {
     double time = 0.0;
+#if defined(_WIN32)
+    LARGE_INTEGER now = { 0 };
+    QueryPerformanceCounter(&now);
+    return (double)(now.QuadPart - CORE.Time.base)/(double)platform.timerFrequency.QuadPart;
+#elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__EMSCRIPTEN__)
+    double time = 0.0;
     struct timespec ts = { 0 };
     clock_gettime(CLOCK_MONOTONIC, &ts);
     unsigned long long int nanoSeconds = (unsigned long long int)ts.tv_sec*1000000000LLU + (unsigned long long int)ts.tv_nsec;
-
     time = (double)(nanoSeconds - CORE.Time.base)*1e-9;  // Elapsed time since InitTimer()
-
+#endif
     return time;
 }
 
@@ -366,7 +391,11 @@ void OpenURL(const char *url)
     if (strchr(url, '\'') != NULL) TRACELOG(LOG_WARNING, "SYSTEM: Provided URL could be potentially malicious, avoid [\'] character");
     else
     {
-        // TODO:
+        char *cmd = (char *)RL_CALLOC(strlen(url) + 32, sizeof(char));
+        sprintf(cmd, "explorer \"%s\"", url);
+        int result = system(cmd);
+        if (result == -1) TRACELOG(LOG_WARNING, "OpenURL() child process could not be created");
+        RL_FREE(cmd);
     }
 }
 
@@ -444,6 +473,13 @@ void PollInputEvents(void)
     }
 
     // TODO: Poll input events for current platform
+    
+    // Check for key pressed to exit
+    if (kbhit())
+    {
+        int key = getch();
+        if (key == 27) CORE.Window.shouldClose = true; // KEY_SCAPE
+    }
 }
 
 //----------------------------------------------------------------------------------
@@ -453,113 +489,17 @@ void PollInputEvents(void)
 // Initialize platform: graphics, inputs and more
 int InitPlatform(void)
 {
-    // TODO: Initialize graphic device: display/window
-    // It usually requires setting up the platform display system configuration
-    // and connexion with the GPU through some system graphic API
-    // raylib uses OpenGL so, platform should create that kind of connection
-    // Below example illustrates that process using EGL library
-    //----------------------------------------------------------------------------
-    CORE.Window.fullscreen = true;
-    FLAG_SET(CORE.Window.flags, FLAG_FULLSCREEN_MODE);
-
-    EGLint samples = 0;
-    EGLint sampleBuffer = 0;
-    if (FLAG_IS_SET(CORE.Window.flags, FLAG_MSAA_4X_HINT))
+    // Memory framebuffer can only work with software renderer
+    if (rlGetVersion() != RL_OPENGL_11_SOFTWARE)
     {
-        samples = 4;
-        sampleBuffer = 1;
-        TRACELOG(LOG_INFO, "DISPLAY: Trying to enable MSAA x4");
-    }
-
-    const EGLint framebufferAttribs[] =
-    {
-        EGL_RENDERABLE_TYPE, (rlGetVersion() == RL_OPENGL_ES_30)? EGL_OPENGL_ES3_BIT : EGL_OPENGL_ES2_BIT,      // Type of context support
-        EGL_RED_SIZE, 8,            // RED color bit depth (alternative: 5)
-        EGL_GREEN_SIZE, 8,          // GREEN color bit depth (alternative: 6)
-        EGL_BLUE_SIZE, 8,           // BLUE color bit depth (alternative: 5)
-        //EGL_TRANSPARENT_TYPE, EGL_NONE, // Request transparent framebuffer (EGL_TRANSPARENT_RGB does not work on RPI)
-        EGL_DEPTH_SIZE, 16,         // Depth buffer size (Required to use Depth testing!)
-        //EGL_STENCIL_SIZE, 8,      // Stencil buffer size
-        EGL_SAMPLE_BUFFERS, sampleBuffer,    // Activate MSAA
-        EGL_SAMPLES, samples,       // 4x Antialiasing if activated (Free on MALI GPUs)
-        EGL_NONE
-    };
-
-    const EGLint contextAttribs[] =
-    {
-        EGL_CONTEXT_CLIENT_VERSION, 2,
-        EGL_NONE
-    };
-
-    EGLint numConfigs = 0;
-
-    // Get an EGL device connection
-    platform.device = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-    if (platform.device == EGL_NO_DISPLAY)
-    {
-        TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
-        return false;
-    }
-
-    // Initialize the EGL device connection
-    if (eglInitialize(platform.device, NULL, NULL) == EGL_FALSE)
-    {
-        // If all of the calls to eglInitialize returned EGL_FALSE then an error has occurred.
-        TRACELOG(LOG_WARNING, "DISPLAY: Failed to initialize EGL device");
-        return false;
-    }
-
-    // Get an appropriate EGL framebuffer configuration
-    eglChooseConfig(platform.device, framebufferAttribs, &platform.config, 1, &numConfigs);
-
-    // Set rendering API
-    eglBindAPI(EGL_OPENGL_ES_API);
-
-    // Create an EGL rendering context
-    platform.context = eglCreateContext(platform.device, platform.config, EGL_NO_CONTEXT, contextAttribs);
-    if (platform.context == EGL_NO_CONTEXT)
-    {
-        TRACELOG(LOG_WARNING, "DISPLAY: Failed to create EGL context");
+        TRACELOG(LOG_WARNING, "DISPLAY: Memory platform requires software renderer (GRAPHICS_API_OPENGL_11_SOFTWARE)");
+        TRACELOG(LOG_FATAL, "PLATFORM: Failed to initialize graphics device");
         return -1;
-    }
-
-    // Create an EGL window surface
-    EGLint displayFormat = 0;
-
-    // EGL_NATIVE_VISUAL_ID is an attribute of the EGLConfig that is guaranteed to be accepted by ANativeWindow_setBuffersGeometry()
-    // As soon as we picked a EGLConfig, we can safely reconfigure the ANativeWindow buffers to match, using EGL_NATIVE_VISUAL_ID
-    eglGetConfigAttrib(platform.device, platform.config, EGL_NATIVE_VISUAL_ID, &displayFormat);
-
-    // Android specific call
-    ANativeWindow_setBuffersGeometry(platform.app->window, 0, 0, displayFormat);       // Force use of native display size
-
-    platform.surface = eglCreateWindowSurface(platform.device, platform.config, platform.app->window, NULL);
-
-    // There must be at least one frame displayed before the buffers are swapped
-    eglSwapInterval(platform.device, 1);
-
-    EGLBoolean result = eglMakeCurrent(platform.device, platform.surface, platform.surface, platform.context);
-
-    // Check surface and context activation
-    if (result != EGL_FALSE)
-    {
-        CORE.Window.ready = true;
-
-        CORE.Window.render.width = CORE.Window.screen.width;
-        CORE.Window.render.height = CORE.Window.screen.height;
-        CORE.Window.currentFbo.width = CORE.Window.render.width;
-        CORE.Window.currentFbo.height = CORE.Window.render.height;
-
-        TRACELOG(LOG_INFO, "DISPLAY: Device initialized successfully");
-        TRACELOG(LOG_INFO, "    > Display size: %i x %i", CORE.Window.display.width, CORE.Window.display.height);
-        TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window.screen.width, CORE.Window.screen.height);
-        TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window.render.width, CORE.Window.render.height);
-        TRACELOG(LOG_INFO, "    > Viewport offsets: %i, %i", CORE.Window.renderOffset.x, CORE.Window.renderOffset.y);
     }
     else
     {
-        TRACELOG(LOG_FATAL, "PLATFORM: Failed to initialize graphics device");
-        return -1;
+        // Load memory framebuffer with desired screen size
+        platform.pixels = (unsigned int *)RL_CALLOC(CORE.Window.screen.width*CORE.Window.screen.height, sizeof(int));
     }
     //----------------------------------------------------------------------------
 
@@ -574,11 +514,13 @@ int InitPlatform(void)
     TRACELOG(LOG_INFO, "    > Screen size:  %i x %i", CORE.Window.screen.width, CORE.Window.screen.height);
     TRACELOG(LOG_INFO, "    > Render size:  %i x %i", CORE.Window.render.width, CORE.Window.render.height);
     TRACELOG(LOG_INFO, "    > Viewport offsets: %i, %i", CORE.Window.renderOffset.x, CORE.Window.renderOffset.y);
+    
+    CORE.Window.ready = true;
 
     // TODO: Load OpenGL extensions
     // NOTE: GL procedures address loader is required to load extensions
     //----------------------------------------------------------------------------
-    rlLoadExtensions(eglGetProcAddress);
+    // ...
     //----------------------------------------------------------------------------
 
     // TODO: Initialize input events system
@@ -589,17 +531,23 @@ int InitPlatform(void)
     // ...
     //----------------------------------------------------------------------------
 
-    // TODO: Initialize timing system
+    // Initialize timing system
     //----------------------------------------------------------------------------
+#if defined(_WIN32)
+    LARGE_INTEGER time = { 0 };
+    QueryPerformanceCounter(&time);
+    QueryPerformanceFrequency(&platform.timerFrequency);
+    CORE.Time.base = time.QuadPart;
+#endif
     InitTimer();
     //----------------------------------------------------------------------------
 
-    // TODO: Initialize storage system
+    // Initialize storage system
     //----------------------------------------------------------------------------
     CORE.Storage.basePath = GetWorkingDirectory();
     //----------------------------------------------------------------------------
 
-    TRACELOG(LOG_INFO, "PLATFORM: CUSTOM: Initialized successfully");
+    TRACELOG(LOG_INFO, "PLATFORM: MEMORY: Initialized successfully");
 
     return 0;
 }
@@ -607,7 +555,41 @@ int InitPlatform(void)
 // Close platform
 void ClosePlatform(void)
 {
-    // TODO: De-initialize graphics, inputs and more
+    RL_FREE(platform.pixels);
 }
+
+//----------------------------------------------------------------------------------
+// Module Internal Functions Definition
+//----------------------------------------------------------------------------------
+#if !defined(_WIN32)
+// Check if a key has been pressed
+static int kbhit(void)
+{
+    struct termios oldt = { 0 };
+    struct termios newt = { 0 };
+    int ch = 0;
+    int oldf = 0;
+
+    tcgetattr(STDIN_FILENO, &oldt);
+    newt = oldt;
+    newt.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+    oldf = fcntl(STDIN_FILENO, F_GETFL, 0);
+    fcntl(STDIN_FILENO, F_SETFL, oldf | O_NONBLOCK);
+
+    ch = getchar();
+
+    tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+    fcntl(STDIN_FILENO, F_SETFL, oldf);
+
+    if (ch != EOF)
+    {
+        ungetc(ch, stdin);
+        return 1;
+    }
+
+    return 0;
+}
+#endif
 
 // EOF

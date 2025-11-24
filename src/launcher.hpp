@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include <algorithm>
 #include <array>
 #include <map>
 #include <optional>
@@ -39,6 +40,37 @@ enum class ItemType {
 	Content,
 	ContentMix,
 	Theme,
+};
+
+struct Action {
+	enum Type {
+		Back,
+		Activate,
+		Toggle,
+		Up,
+		Down,
+		PageUp,
+		PageDown,
+		Count,
+	};
+	static std::optional<Type> fromName(std::string_view n)
+	{
+		const char* names[] = {
+			"Back",
+			"Activate",
+			"Toggle",
+			"Up",
+			"Down",
+			"PageUp",
+			"PageDown",
+		};
+		const auto it = std::find_if(std::begin(names), std::end(names), [&](const char* v) -> bool {
+			return n == v;
+		});
+		if (it == std::end(names))
+			return std::nullopt;
+		return (Type)std::distance(std::begin(names), it);
+	}
 };
 
 struct ViewState {
@@ -128,13 +160,7 @@ struct Theme {
 };
 
 struct Mapping {
-	KeyboardKey back { KEY_ESCAPE };
-	KeyboardKey activate { KEY_ENTER };
-	KeyboardKey toggle { KEY_F };
-	KeyboardKey up { KEY_UP };
-	KeyboardKey down { KEY_DOWN };
-	KeyboardKey pageUp { KEY_LEFT };
-	KeyboardKey pageDown { KEY_RIGHT };
+	std::array<std::optional<KeyboardKey>, Action::Count> keys {};
 };
 
 struct Context {
@@ -147,6 +173,7 @@ struct Context {
 	FontInfo currentFont { 0, {} };
 	Font fnt {};
 
+	std::map<std::string, KeyboardKey> keyNameToId;
 	Mapping mapping {};
 
 	std::map<std::string, ViewState> lastSelected {};

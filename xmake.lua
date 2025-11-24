@@ -17,7 +17,7 @@ if is_plat("linux") then
 		"ext/raylib/src/rtextures.c",
 		"ext/raylib/src/utils.c"
 	)
-	add_includedirs("ext/raylib/src", "/usr/include/SDL2")
+	add_includedirs("ext/raylib/src", "/usr/include/SDL3")
 	add_defines("PLATFORM_DESKTOP_SDL", "GRAPHICS_API_OPENGL_33")
 	if is_mode("debug") then
 		add_defines("DEBUG")
@@ -36,7 +36,7 @@ target("main")
 		add_links("raylib")
 	end
 	add_includedirs("ext/raylib/src")
-	add_links("SDL2", "sqlite3", "tcl")
+	add_links("SDL3", "sqlite3", "tcl")
 	set_rundir(".")
 	if is_mode("debug") then
 		add_defines("DEBUG")

@@ -407,7 +407,7 @@ static AudioData AUDIO = {          // Global AUDIO context
 };
 
 //----------------------------------------------------------------------------------
-// Module specific Functions Declaration
+// Module Internal Functions Declaration
 //----------------------------------------------------------------------------------
 static void OnLog(void *pUserData, ma_uint32 level, const char *pMessage);
 
@@ -454,6 +454,7 @@ void UntrackAudioBuffer(AudioBuffer *buffer);
 //----------------------------------------------------------------------------------
 // Module Functions Definition - Audio Device initialization and Closing
 //----------------------------------------------------------------------------------
+
 // Initialize audio device
 void InitAudioDevice(void)
 {
@@ -574,7 +575,7 @@ AudioBuffer *LoadAudioBuffer(ma_format format, ma_uint32 channels, ma_uint32 sam
         return NULL;
     }
 
-    if (sizeInFrames > 0) audioBuffer->data = RL_CALLOC(sizeInFrames*channels*ma_get_bytes_per_sample(format), 1);
+    if (sizeInFrames > 0) audioBuffer->data = (unsigned char *)RL_CALLOC(sizeInFrames*channels*ma_get_bytes_per_sample(format), 1);
 
     // Audio data runs through a format converter
     ma_data_converter_config converterConfig = ma_data_converter_config_init(format, AUDIO_DEVICE_FORMAT, channels, AUDIO_DEVICE_CHANNELS, sampleRate, AUDIO.System.device.sampleRate);
@@ -592,7 +593,7 @@ AudioBuffer *LoadAudioBuffer(ma_format format, ma_uint32 channels, ma_uint32 sam
     // Init audio buffer values
     audioBuffer->volume = 1.0f;
     audioBuffer->pitch = 1.0f;
-    audioBuffer->pan = 0.5f;
+    audioBuffer->pan = 0.0f; // Center
 
     audioBuffer->callback = NULL;
     audioBuffer->processor = NULL;
@@ -719,7 +720,7 @@ void SetAudioBufferPitch(AudioBuffer *buffer, float pitch)
 // Set pan for an audio buffer
 void SetAudioBufferPan(AudioBuffer *buffer, float pan)
 {
-    if (pan < 0.0f) pan = 0.0f;
+    if (pan < -1.0f) pan = -1.0f;
     else if (pan > 1.0f) pan = 1.0f;
 
     if (buffer != NULL)
@@ -807,7 +808,7 @@ Wave LoadWaveFromMemory(const char *fileType, const unsigned char *fileData, int
             wave.data = (short *)RL_MALLOC((size_t)wave.frameCount*wave.channels*sizeof(short));
 
             // NOTE: We are forcing conversion to 16bit sample size on reading
-            drwav_read_pcm_frames_s16(&wav, wave.frameCount, wave.data);
+            drwav_read_pcm_frames_s16(&wav, wave.frameCount, (drwav_int16 *)wave.data);
         }
         else TRACELOG(LOG_WARNING, "WAVE: Failed to load WAV data");
 
@@ -984,10 +985,10 @@ Sound LoadSoundAlias(Sound source)
         audioBuffer->sizeInFrames = source.stream.buffer->sizeInFrames;
         audioBuffer->data = source.stream.buffer->data;
 
-        // initalize the buffer as if it was new
+        // Initalize the buffer as if it was new
         audioBuffer->volume = 1.0f;
         audioBuffer->pitch = 1.0f;
-        audioBuffer->pan = 0.5f;
+        audioBuffer->pan = 0.0f; // Center
 
         sound.frameCount = source.frameCount;
         sound.stream.sampleRate = AUDIO.System.device.sampleRate;
@@ -1090,7 +1091,7 @@ bool ExportWave(Wave wave, const char *fileName)
             qoa.samplerate = wave.sampleRate;
             qoa.samples = wave.frameCount;
 
-            int bytesWritten = qoa_write(fileName, wave.data, &qoa);
+            int bytesWritten = qoa_write(fileName, (const short *)wave.data, &qoa);
             if (bytesWritten > 0) success = true;
         }
         else TRACELOG(LOG_WARNING, "AUDIO: Wave data must be 16 bit per sample for QOA format export");
@@ -1586,7 +1587,7 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
     else if ((strcmp(fileType, ".mp3") == 0) || (strcmp(fileType, ".MP3") == 0))
     {
         drmp3 *ctxMp3 = (drmp3 *)RL_CALLOC(1, sizeof(drmp3));
-        int success = drmp3_init_memory(ctxMp3, (const void*)data, dataSize, NULL);
+        int success = drmp3_init_memory(ctxMp3, (const void *)data, dataSize, NULL);
 
         if (success)
         {
@@ -1630,7 +1631,7 @@ Music LoadMusicStreamFromMemory(const char *fileType, const unsigned char *data,
 #if defined(SUPPORT_FILEFORMAT_FLAC)
     else if ((strcmp(fileType, ".flac") == 0) || (strcmp(fileType, ".FLAC") == 0))
     {
-        drflac *ctxFlac = drflac_open_memory((const void*)data, dataSize, NULL);
+        drflac *ctxFlac = drflac_open_memory((const void *)data, dataSize, NULL);
 
         if (ctxFlac != NULL)
         {
@@ -2078,7 +2079,7 @@ float GetMusicTimePlayed(Music music)
         {
             uint64_t framesPlayed = 0;
 
-            jar_xm_get_position(music.ctxData, NULL, NULL, NULL, &framesPlayed);
+            jar_xm_get_position((jar_xm_context_t *)music.ctxData, NULL, NULL, NULL, &framesPlayed);
             secondsPlayed = (float)framesPlayed/music.stream.sampleRate;
         }
         else
@@ -2091,9 +2092,7 @@ float GetMusicTimePlayed(Music music)
             int framesInFirstBuffer = music.stream.buffer->isSubBufferProcessed[0]? 0 : subBufferSize;
             int framesInSecondBuffer = music.stream.buffer->isSubBufferProcessed[1]? 0 : subBufferSize;
             int framesInBuffers = framesInFirstBuffer + framesInSecondBuffer;
-            if ((unsigned int)framesInBuffers > music.frameCount) {
-                if (!music.looping) framesInBuffers = music.frameCount;
-            }
+            if (((unsigned int)framesInBuffers > music.frameCount) && !music.looping) framesInBuffers = music.frameCount;
             int framesSentToMix = music.stream.buffer->frameCursorPos%subBufferSize;
             int framesPlayed = (framesProcessed - framesInBuffers + framesSentToMix)%(int)music.frameCount;
             if (framesPlayed < 0) framesPlayed += music.frameCount;
@@ -2124,7 +2123,7 @@ AudioStream LoadAudioStream(unsigned int sampleRate, unsigned int sampleSize, un
     if (deviceBitsPerSample > 4)  deviceBitsPerSample = 4;
     deviceBitsPerSample *= AUDIO.System.device.playback.channels;
 
-    unsigned int subBufferSize = (AUDIO.Buffer.defaultSize == 0) ? (AUDIO.System.device.sampleRate/30*deviceBitsPerSample) : AUDIO.Buffer.defaultSize;
+    unsigned int subBufferSize = (AUDIO.Buffer.defaultSize == 0)? (AUDIO.System.device.sampleRate/30*deviceBitsPerSample) : AUDIO.Buffer.defaultSize;
 
     if (subBufferSize < periodSize) subBufferSize = periodSize;
 
@@ -2352,9 +2351,8 @@ void DetachAudioMixedProcessor(AudioCallback process)
 }
 
 //----------------------------------------------------------------------------------
-// Module specific Functions Definition
+// Module Internal Functions Definition
 //----------------------------------------------------------------------------------
-
 // Log callback function
 static void OnLog(void *pUserData, ma_uint32 level, const char *pMessage)
 {
@@ -2605,8 +2603,8 @@ static void MixAudioFrames(float *framesOut, const float *framesIn, ma_uint32 fr
 
     if (channels == 2)  // We consider panning
     {
-        const float left = buffer->pan;
-        const float right = 1.0f - left;
+        const float right = (buffer->pan + 1.0f)/2.0f; // Normalize: [-1..1] -> [0..1]
+        const float left = 1.0f - right;
 
         // Fast sine approximation in [0..1] for pan law: y = 0.5f*x*(3 - x*x);
         const float levels[2] = { localVolume*0.5f*left*(3.0f - left*left), localVolume*0.5f*right*(3.0f - right*right) };
